@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Cellular automaton explorer | Shane Keith</title>
+<style>
+:root{
+  --bg:#f2f4f6;--panel:#ffffff;--ink:#14181c;--ink2:#566069;--line:#d5dbe0;--accent:#0f6e56;--accent-soft:#e1f5ee;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){--bg:#0f1317;--panel:#171c21;--ink:#e6eaee;--ink2:#97a2ad;--line:#2a323a;--accent:#5dcaa5;--accent-soft:#12302a;}
+}
+:root[data-theme="dark"]{--bg:#0f1317;--panel:#171c21;--ink:#e6eaee;--ink2:#97a2ad;--line:#2a323a;--accent:#5dcaa5;--accent-soft:#12302a;}
+html{scroll-padding-top:env(safe-area-inset-top,0px);}
+*,*::before,*::after{box-sizing:border-box;}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;line-height:1.55;}
+main{max-width:760px;margin:0 auto;padding:28px 18px 48px;}
+h1{font-size:26px;font-weight:600;letter-spacing:-0.01em;margin:0 0 6px;}
+.lede{margin:0 0 22px;color:var(--ink2);max-width:62ch;}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px;margin:0 0 16px;}
+.row{display:flex;flex-wrap:wrap;align-items:center;gap:12px;}
+.row + .row{margin-top:12px;}
+label{font-size:14px;color:var(--ink2);}
+input[type=number],select{font:inherit;font-size:15px;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:7px;padding:6px 9px;}
+input[type=number]{width:84px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;}
+input[type=range]{accent-color:var(--accent);}
+button{font:inherit;font-size:14px;color:var(--ink);background:transparent;border:1px solid var(--line);border-radius:7px;padding:5px 12px;cursor:pointer;}
+button:hover{border-color:var(--ink2);}
+button.on{background:var(--accent-soft);border-color:var(--accent);color:var(--accent);}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+.bin{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:14px;color:var(--ink2);}
+.note{margin:10px 0 0;font-size:14px;color:var(--ink2);min-height:1.55em;}
+.cap{font-size:13px;color:var(--ink2);margin:0 0 8px;}
+#table{display:flex;flex-wrap:wrap;gap:12px;}
+.sq{width:18px;height:18px;border:1px solid var(--ink2);border-radius:3px;background:transparent;}
+.sq.b{background:var(--ink);}
+.pat{display:flex;gap:2px;}
+.cell{display:flex;flex-direction:column;align-items:center;gap:6px;}
+.out{cursor:pointer;padding:0;}
+canvas{display:block;width:100%;height:auto;image-rendering:pixelated;border:1px solid var(--line);border-radius:10px;background:var(--panel);}
+.foot{margin-top:18px;font-size:13px;color:var(--ink2);}
+</style>
+</head>
+<body>
+<main>
+  <p style="margin:0 0 14px;font-size:14px;"><a href="/" style="color:var(--ink2);">Back to home</a></p>
+  <h1>Elementary cellular automaton explorer</h1>
+  <p class="lede">A row of cells, black or white. Each cell's next color depends only on itself and its two neighbors. Eight possible neighborhoods, eight outcomes, and that table is the rule number.</p>
+
+  <section class="panel" aria-label="Rule controls">
+    <div class="row">
+      <label for="ruleNum">Rule</label>
+      <input type="number" id="ruleNum" min="0" max="255" value="30">
+      <input type="range" id="ruleSlider" min="0" max="255" step="1" value="30" style="flex:1;min-width:140px;" aria-label="Rule number slider">
+      <span class="bin" id="bin">00011110</span>
+    </div>
+    <div class="row" id="presets">
+      <button data-r="30">30</button>
+      <button data-r="90">90</button>
+      <button data-r="110">110</button>
+      <button data-r="54">54</button>
+      <button data-r="184">184</button>
+    </div>
+    <p class="note" id="note"></p>
+  </section>
+
+  <section class="panel" aria-label="Rule lookup table">
+    <p class="cap">Lookup table, from 111 down to 000. Click an outcome square to flip it.</p>
+    <div id="table"></div>
+  </section>
+
+  <section class="panel" aria-label="Run settings">
+    <div class="row">
+      <label for="steps">Steps</label>
+      <input type="range" id="steps" min="20" max="150" step="1" value="100" style="width:170px;">
+      <span id="stepsOut" style="font-weight:600;min-width:30px;">100</span>
+      <label for="start" style="margin-left:6px;">Start</label>
+      <select id="start">
+        <option value="single">Single black cell</option>
+        <option value="random">Random row</option>
+      </select>
+      <button id="rerun">Re-run</button>
+    </div>
+  </section>
+
+  <canvas id="cv" role="img" aria-label="Cellular automaton evolution, one row per step, time running downward"></canvas>
+
+  <p class="foot">Time runs downward. The left and right edges wrap around.</p>
+</main>
+
+<script>
+var rule=30,steps=100,startMode='single';
+var cv=document.getElementById('cv');
+var ctx=cv.getContext('2d');
+var tbl=document.getElementById('table');
+var numIn=document.getElementById('ruleNum');
+var slider=document.getElementById('ruleSlider');
+var binOut=document.getElementById('bin');
+var stepsIn=document.getElementById('steps');
+var stepsOut=document.getElementById('stepsOut');
+var startSel=document.getElementById('start');
+var noteEl=document.getElementById('note');
+
+var notes={
+  30:'Chaotic from a single cell. Its center column is random enough to be used as a random number generator.',
+  90:'Perfectly regular nested triangles (the Sierpinski triangle).',
+  110:'A mix of order and chaos, with structures that travel through the noise. Capable of universal computation.',
+  54:'Another in-between rule, with gliding structures.',
+  184:'Behaves like traffic flow. Try the random start.'
+};
+
+function ink(){return getComputedStyle(document.body).color||'#14181c';}
+
+function sq(on){
+  var s=document.createElement('div');
+  s.className='sq'+(on?' b':'');
+  return s;
+}
+
+function buildTable(){
+  tbl.innerHTML='';
+  for(var p=7;p>=0;p--){
+    var wrap=document.createElement('div');
+    wrap.className='cell';
+    var pat=document.createElement('div');
+    pat.className='pat';
+    pat.appendChild(sq((p>>2)&1));
+    pat.appendChild(sq((p>>1)&1));
+    pat.appendChild(sq(p&1));
+    var out=document.createElement('button');
+    out.className='out';
+    out.setAttribute('aria-label','Flip outcome for pattern '+p.toString(2).padStart(3,'0'));
+    out.appendChild(sq((rule>>p)&1));
+    (function(pp){out.addEventListener('click',function(){setRule(rule^(1<<pp));});})(p);
+    wrap.appendChild(pat);
+    wrap.appendChild(out);
+    tbl.appendChild(wrap);
+  }
+}
+
+function draw(){
+  var cols=2*steps+1;
+  var cs=Math.max(2,Math.min(8,Math.floor(720/cols)));
+  cv.width=cols*cs;
+  cv.height=(steps+1)*cs;
+  ctx.clearRect(0,0,cv.width,cv.height);
+  ctx.fillStyle=ink();
+  var a=new Uint8Array(cols);
+  if(startMode==='single'){a[steps]=1;}
+  else{for(var i=0;i<cols;i++){a[i]=Math.random()<0.5?1:0;}}
+  for(var y=0;y<=steps;y++){
+    for(var x=0;x<cols;x++){
+      if(a[x]){ctx.fillRect(x*cs,y*cs,cs,cs);}
+    }
+    var n=new Uint8Array(cols);
+    for(var j=0;j<cols;j++){
+      var l=a[(j-1+cols)%cols],c=a[j],r=a[(j+1)%cols];
+      n[j]=(rule>>(l*4+c*2+r))&1;
+    }
+    a=n;
+  }
+}
+
+function setRule(r){
+  r=Math.max(0,Math.min(255,Math.round(Number(r)||0)));
+  rule=r;
+  numIn.value=r;
+  slider.value=r;
+  binOut.textContent=r.toString(2).padStart(8,'0');
+  noteEl.textContent=notes[r]||'';
+  document.querySelectorAll('#presets button').forEach(function(b){
+    b.classList.toggle('on',Number(b.getAttribute('data-r'))===r);
+  });
+  buildTable();
+  draw();
+}
+
+numIn.addEventListener('input',function(){setRule(numIn.value);});
+slider.addEventListener('input',function(){setRule(slider.value);});
+stepsIn.addEventListener('input',function(){steps=Number(stepsIn.value);stepsOut.textContent=steps;draw();});
+startSel.addEventListener('change',function(){startMode=startSel.value;draw();});
+document.getElementById('rerun').addEventListener('click',draw);
+document.querySelectorAll('#presets button').forEach(function(b){
+  b.addEventListener('click',function(){setRule(b.getAttribute('data-r'));});
+});
+
+try{
+  var mq=window.matchMedia('(prefers-color-scheme: dark)');
+  if(mq.addEventListener){mq.addEventListener('change',draw);}
+  new MutationObserver(draw).observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']});
+}catch(e){}
+
+setRule(30);
+</script>
+</body>
+</html>
